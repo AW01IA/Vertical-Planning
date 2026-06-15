@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Vertical Montecharge — Suivi Projets</title>
+<style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}</style>
+</head>
+<body style="background:#f8fafc;font-family:system-ui,sans-serif;">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/papaparse@5/papaparse.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel" data-presets="react,typescript">
+const { useState, useRef, useCallback } = React;
+
+function triggerUserFileDownload({content, filename}) {
+  const b=new Blob([content],{type:'text/plain;charset=utf-8;'});
+  const u=URL.createObjectURL(b);
+  const a=document.createElement('a');
+  a.href=u; a.download=filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(u);
+}
+const Ico = ({d,style}) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+    {[].concat(d).map((p,i)=><path key={i} d={p}/>)}
+  </svg>
+);
+const Upload=({style})=><Ico style={style} d={["M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4","M17 8l-5-5-5 5","M12 3v12"]}/>;
+const Download=({style})=><Ico style={style} d={["M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4","M7 10l5 5 5-5","M12 15V3"]}/>;
+const Plus=({style})=><Ico style={style} d={["M12 5v14","M5 12h14"]}/>;
+const Edit2=({style})=><Ico style={style} d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>;
+const X=({style})=><Ico style={style} d={["M18 6L6 18","M6 6l12 12"]}/>;
+const AlertTriangle=({style})=><Ico style={style} d={["M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z","M12 9v4","M12 17h.01"]}/>;
+const CheckCircle2=({style})=><Ico style={style} d={["M22 11.08V12a10 10 0 11-5.93-9.14","M22 4L12 14.01l-3-3"]}/>;
+function Button({children,onClick,variant,size,style,...p}){
+  return <button onClick={onClick} style={{cursor:'pointer',borderRadius:'6px',border:'1px solid #d1d5db',backgroundColor:'white',padding:'5px 10px',fontSize:'12px',fontWeight:500,display:'inline-flex',alignItems:'center',color:'#374151',...style}} {...p}>{children}</button>;
+}
+
+const PHASES = [
+  {id:"p1",num:1,label:"Admin.",full:"Formalités administratives",color:"#f97316",etapes:[{key:"formalites_admin",label:"Formalités administratives"}]},
+  {id:"p2",num:2,label:"Études",full:"Études",color:"#3b82f6",etapes:[{key:"etudes",label:"Études"}]},
+  {id:"p3",num:3,label:"Fabrication",full:"Fabrication",color:"#e11d48",etapes:[{key:"fabrication",label:"Fabrication"}]},
+  {id:"p4",num:4,label:"Transport",full:"Transport",color:"#0891b2",etapes:[{key:"transport",label:"Transport et livraison"}]},
+  {id:"p5",num:5,label:"Installation",full:"Installation",color:"#0d9488",etapes:[{key:"installation",label:"Installation"}]},
+  {id:"p6",num:6,label:"Mise en service",full:"Mise en service",color:"#16a34a",etapes:[{key:"mise_en_service",label:"Mise en service"},{key:"reception_finale",label:"Réception client"}]},
+];
+const ALL_ETAPES = PHASES.flatMap(p=>p.etapes.map(e=>({...e,phase:p})));
+
+const SAMPLE = [
+  {id:"VM-2025-001",nom:"Self-Storage Lyon Nord",client:"StorPlus Lyon",montant:85000,
+   dates:{formalites_admin:{debut:"2025-01-06",fin:"2025-01-13",done:true},etudes:{debut:"2025-01-20",fin:"2025-02-10",done:true},fabrication:{debut:"2025-02-24",fin:"2025-05-26",done:false},transport:{debut:"2025-06-16",fin:"2025-06-16",done:false},installation:{debut:"2025-06-23",fin:"2025-06-30",done:false},mise_en_service:{debut:"2025-07-01",fin:"2025-07-03",done:false},reception_finale:{debut:"2025-07-07",fin:"2025-07-07",done:false}}},
+  {id:"VM-2025-002",nom:"Site Industriel Lille",client:"Métal Ind. Nord",montant:120000,
+   dates:{formalites_admin:{debut:"2025-02-03",fin:"2025-02-10",done:true},etudes:{debut:"2025-02-17",fin:"2025-03-10",done:true},fabrication:{debut:"2025-03-24",fin:"2025-06-30",done:false},transport:{debut:"2025-07-21",fin:"2025-07-21",done:false},installation:{debut:"2025-07-28",fin:"2025-08-04",done:false},mise_en_service:{debut:"2025-08-05",fin:"2025-08-07",done:false},reception_finale:{debut:"2025-08-11",fin:"2025-08-11",done:false}}},
+  {id:"VM-2025-003",nom:"Logistique Paris Est",client:"LogiParis SA",montant:67000,dates:{formalites_admin:{debut:"2025-03-03",fin:"2025-03-10",done:true}}},
+  {id:"VM-2025-004",nom:"Entrepôt Bordeaux",client:"SKGA Stockage",montant:95000,dates:{formalites_admin:{debut:"2025-04-07",fin:"2025-04-14",done:true},etudes:{debut:"2025-04-21",fin:"2025-05-05",done:false}}},
+];
+
+function parseDate(s){if(!s)return null;const d=new Date(s+"T00:00:00");return isNaN(d.getTime())?null:d;}
+function toISO(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+function fmtMoney(n){return new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n);}
+function isoWeek(d){const t=new Date(d.valueOf());t.setDate(t.getDate()+4-(t.getDay()||7));const y=new Date(t.getFullYear(),0,1);return Math.ceil((((t.valueOf()-y.valueOf())/86400000)+1)/7);}
+function monday(d){const r=new Date(d);r.setHours(0,0,0,0);r.setDate(r.getDate()-((r.getDay()+6)%7));return r;}
+function getCurrentEtape(p){for(const e of ALL_ETAPES){const d=p.dates[e.key];if(!d||!d.done)return e.key;}return null;}
+function isDelayed(p){const t=new Date();t.setHours(0,0,0,0);for(const e of ALL_ETAPES){const d=p.dates[e.key];if(!d||d.done)continue;const f=parseDate(d.fin);if(f&&f<t)return true;}return false;}
+function activeInMonth(p,yr,mo){const s=new Date(yr,mo,1),e=new Date(yr,mo+1,0);for(const et of ALL_ETAPES){const d=p.dates[et.key];if(!d?.debut||!d?.fin)continue;const db=parseDate(d.debut),fn=parseDate(d.fin);if(db<=e&&fn>=s)return true;}return false;}
+
+function DatePicker({value,onChange}){
+  const [open,setOpen]=useState(false);
+  const [popStyle,setPopStyle]=useState({});
+  const [viewYM,setViewYM]=useState(()=>{const d=parseDate(value)||new Date();return[d.getFullYear(),d.getMonth()];});
+  const btnRef=useRef(null);
+  const sel=parseDate(value);
+  const wkLabel=sel?`S${isoWeek(sel)}`:"";
+  const openPicker=()=>{
+    if(btnRef.current){const rect=btnRef.current.getBoundingClientRect();const popH=250;const top=rect.bottom+4+popH>window.innerHeight?rect.top-popH-4:rect.bottom+4;setPopStyle({position:"fixed",top,left:Math.min(rect.left,window.innerWidth-250),zIndex:1000,width:"240px"});}
+    if(!open&&value){const d=parseDate(value);if(d)setViewYM([d.getFullYear(),d.getMonth()]);}
+    setOpen(v=>!v);
+  };
+  const prevM=()=>setViewYM(prev=>{const d=new Date(prev[0],prev[1]-1,1);return[d.getFullYear(),d.getMonth()];});
+  const nextM=()=>setViewYM(prev=>{const d=new Date(prev[0],prev[1]+1,1);return[d.getFullYear(),d.getMonth()];});
+  const [yr,mo]=viewYM;
+  const calStart=monday(new Date(yr,mo,1));
+  const weeks=[];const cur=new Date(calStart);
+  for(let w=0;w<6;w++){const days=[];for(let i=0;i<7;i++){days.push(new Date(cur));cur.setDate(cur.getDate()+1);}if(days.every(d=>d.getMonth()!==mo)&&w>=4)break;weeks.push({num:isoWeek(days[0]),days});}
+  const monthLabel=new Date(yr,mo,1).toLocaleDateString("fr-FR",{month:"long",year:"numeric"});
+  return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:"3px"}}>
+      <button ref={btnRef} onClick={openPicker} style={{fontSize:"11px",border:"1px solid #d1d5db",borderRadius:"5px",padding:"3px 7px",cursor:"pointer",backgroundColor:open?"#fef2f2":"white",color:"#374151",minWidth:"100px",textAlign:"left"}}>
+        {value?value.split("-").reverse().join("/"):"— sélectionner"}
+      </button>
+      {wkLabel&&<span style={{fontSize:"10px",color:"#6b7280",fontWeight:600}}>{wkLabel}</span>}
+      {open&&(<>
+        <div style={{position:"fixed",inset:0,zIndex:999}} onClick={()=>setOpen(false)}/>
+        <div style={{...popStyle,backgroundColor:"white",border:"1px solid #d1d5db",borderRadius:"8px",boxShadow:"0 8px 24px rgba(0,0,0,0.18)",padding:"10px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}}>
+            <button onClick={prevM} style={{background:"none",border:"none",cursor:"pointer",fontSize:"16px",padding:"1px 6px",borderRadius:"4px",color:"#374151"}}>‹</button>
+            <span style={{fontSize:"12px",fontWeight:700,textTransform:"capitalize"}}>{monthLabel}</span>
+            <button onClick={nextM} style={{background:"none",border:"none",cursor:"pointer",fontSize:"16px",padding:"1px 6px",borderRadius:"4px",color:"#374151"}}>›</button>
+          </div>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr>
+              <th style={{fontSize:"9px",color:"#9ca3af",padding:"2px 3px",textAlign:"center",width:"26px",fontWeight:600}}>Sem.</th>
+              {["L","M","M","J","V","S","D"].map((d,i)=><th key={i} style={{fontSize:"9px",color:i>=5?"#9ca3af":"#6b7280",padding:"2px",textAlign:"center",width:"28px"}}>{d}</th>)}
+            </tr></thead>
+            <tbody>{weeks.map(({num,days})=>(
+              <tr key={num}>
+                <td style={{fontSize:"9px",color:"#0891b2",textAlign:"center",fontWeight:700,paddingRight:"3px"}}>S{num}</td>
+                {days.map((day,i)=>{
+                  const isCurMo=day.getMonth()===mo;
+                  const isSel=sel&&day.toDateString()===sel.toDateString();
+                  const isToday=day.toDateString()===new Date().toDateString();
+                  return <td key={i} onClick={()=>{onChange(toISO(day));setOpen(false);}} style={{padding:"1px",cursor:"pointer"}}>
+                    <div style={{width:"24px",height:"22px",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11px",margin:"auto",backgroundColor:isSel?"#dc2626":isToday?"#fef2f2":"transparent",color:isSel?"white":!isCurMo?"#d1d5db":i>=5?"#9ca3af":"#374151",fontWeight:isSel||isToday?700:400,border:isToday&&!isSel?"1px solid #fca5a5":"none"}}>{day.getDate()}</div>
+                  </td>;
+                })}
+              </tr>
+            ))}</tbody>
+          </table>
+          {value&&<div style={{textAlign:"center",marginTop:"5px"}}><button onClick={()=>{onChange("");setOpen(false);}} style={{fontSize:"10px",color:"#9ca3af",background:"none",border:"none",cursor:"pointer"}}>Effacer</button></div>}
+        </div>
+      </>)}
+    </span>
+  );
+}
+
+function EditPanel({projet,onSave,onCancel,onDelete}){
+  const [form,setForm]=useState(JSON.parse(JSON.stringify(projet)));
+  const sd=(key,f,v)=>setForm(p=>({...p,dates:{...p.dates,[key]:{...(p.dates[key]||{debut:"",fin:"",done:false}),[f]:v}}}));
+  const sdone=(key,v)=>setForm(p=>({...p,dates:{...p.dates,[key]:{...(p.dates[key]||{debut:"",fin:"",done:false}),done:v}}}));
+  return (
+    <div style={{borderTop:"3px solid #dc2626",backgroundColor:"#fffaf9",padding:"12px 14px"}}>
+      <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"12px",padding:"8px 10px",backgroundColor:"white",borderRadius:"7px",border:"1px solid #e5e7eb"}}>
+        <input value={form.nom} onChange={e=>setForm({...form,nom:e.target.value})} placeholder="Nom du projet" style={{fontSize:"12px",fontWeight:600,border:"1px solid #d1d5db",borderRadius:"5px",padding:"4px 8px",flex:"2 1 140px"}}/>
+        <input value={form.client} onChange={e=>setForm({...form,client:e.target.value})} placeholder="Client" style={{fontSize:"12px",border:"1px solid #d1d5db",borderRadius:"5px",padding:"4px 8px",flex:"1 1 100px"}}/>
+        <input type="number" value={form.montant} onChange={e=>setForm({...form,montant:parseFloat(e.target.value)||0})} placeholder="Montant €" style={{fontSize:"12px",border:"1px solid #d1d5db",borderRadius:"5px",padding:"4px 8px",width:"100px",flexShrink:0}}/>
+        <div style={{display:"flex",gap:"5px",marginLeft:"auto",flexShrink:0}}>
+          <button onClick={()=>onSave(form)} style={{fontSize:"12px",fontWeight:700,backgroundColor:"#dc2626",color:"white",border:"none",borderRadius:"6px",padding:"6px 14px",cursor:"pointer"}}>✓ Enregistrer</button>
+          <button onClick={onCancel} style={{fontSize:"12px",border:"1px solid #d1d5db",borderRadius:"6px",padding:"6px 10px",cursor:"pointer",backgroundColor:"white"}}>Annuler</button>
+          <button onClick={()=>{if(confirm("Supprimer ce projet ?")){onDelete(form.id);onCancel();}}} style={{fontSize:"11px",border:"none",borderRadius:"6px",padding:"6px 8px",cursor:"pointer",color:"#ef4444",backgroundColor:"transparent"}}>Supprimer</button>
+        </div>
+      </div>
+      <div style={{display:"grid",gap:"8px",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))"}}>
+        {PHASES.map(phase=>(
+          <div key={phase.id} style={{backgroundColor:"white",border:`1px solid ${phase.color}30`,borderRadius:"7px",overflow:"hidden"}}>
+            <div style={{backgroundColor:phase.color,padding:"5px 10px"}}><span style={{color:"white",fontSize:"11px",fontWeight:700}}>Étape {phase.num} · {phase.full}</span></div>
+            <div style={{padding:"8px"}}>
+              {phase.etapes.map(etape=>{
+                const d=form.dates[etape.key]||{debut:"",fin:"",done:false};
+                return (<div key={etape.key} style={{marginBottom:"8px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"5px",marginBottom:"5px"}}>
+                    <input type="checkbox" checked={d.done} onChange={e=>sdone(etape.key,e.target.checked)} style={{width:"13px",height:"13px",accentColor:phase.color,flexShrink:0}}/>
+                    <span style={{fontSize:"11px",fontWeight:600,textDecoration:d.done?"line-through":"none",color:d.done?"#9ca3af":"#374151"}}>{etape.label}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"5px",paddingLeft:"18px",flexWrap:"wrap"}}>
+                    <DatePicker value={d.debut} onChange={v=>sd(etape.key,"debut",v)}/>
+                    <span style={{fontSize:"10px",color:"#9ca3af"}}>→</span>
+                    <DatePicker value={d.fin} onChange={v=>sd(etape.key,"fin",v)}/>
+                  </div>
+                </div>);
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectPDFView({projet,onClose}){
+  const today=new Date();
+  let minD=null,maxD=null;
+  ALL_ETAPES.forEach(e=>{const d=projet.dates[e.key];if(!d)return;const db=parseDate(d.debut),fn=parseDate(d.fin);if(db&&(!minD||db<minD))minD=db;if(fn&&(!maxD||fn>maxD))maxD=fn;});
+  const n=new Date();
+  const gStart=new Date(minD||new Date(n.getFullYear(),n.getMonth(),1));gStart.setDate(1);
+  const gEnd=new Date(maxD||new Date(n.getFullYear(),n.getMonth()+5,1));gEnd.setMonth(gEnd.getMonth()+1,1);
+  const totalMs=gEnd.getTime()-gStart.getTime();
+  const getPct=d=>Math.max(0,Math.min(100,(d.getTime()-gStart.getTime())/totalMs*100));
+  const months=[];const cur=new Date(gStart);
+  while(cur<gEnd){
+    const mStart=new Date(cur),mEnd=new Date(cur.getFullYear(),cur.getMonth()+1,0);
+    const leftPct=getPct(mStart),rightPct=getPct(new Date(cur.getFullYear(),cur.getMonth()+1,1));
+    const weeks=[];const wCur=monday(mStart);
+    while(wCur<=mEnd){const lp=getPct(wCur);if(lp>=leftPct-0.1&&lp<rightPct)weeks.push({num:isoWeek(wCur),leftPct:lp});wCur.setDate(wCur.getDate()+7);}
+    months.push({label:cur.toLocaleDateString("fr-FR",{month:"short",year:"2-digit"}),leftPct,widthPct:rightPct-leftPct,weeks});
+    cur.setMonth(cur.getMonth()+1);
+  }
+  const fmtD=s=>s?new Date(s+"T00:00:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}):"—";
+  return (<>
+    <style>{`@media print{body>*{display:none!important;}body>.vm-pdf-root{display:block!important;}.vm-pdf-root .no-print{display:none!important;}@page{size:A4 landscape;margin:10mm 12mm;}}`}</style>
+    <div className="vm-pdf-root" style={{position:"fixed",inset:0,zIndex:2000,backgroundColor:"white",overflowY:"auto"}}>
+      <div className="no-print" style={{position:"sticky",top:0,zIndex:10,backgroundColor:"white",borderBottom:"2px solid #e5e7eb",padding:"10px 24px",display:"flex",alignItems:"center",gap:"12px",boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+        <div style={{fontSize:"13px",fontWeight:700,color:"#374151"}}>Planning : {projet.nom}</div>
+        <div style={{fontSize:"11px",color:"#6b7280"}}>{projet.client}</div>
+        <div style={{flex:1}}/>
+        <button onClick={()=>window.print()} style={{fontSize:"12px",fontWeight:700,backgroundColor:"#dc2626",color:"white",border:"none",borderRadius:"6px",padding:"7px 18px",cursor:"pointer"}}>🖨️ Télécharger PDF</button>
+        <button onClick={onClose} style={{fontSize:"12px",border:"1px solid #d1d5db",borderRadius:"6px",padding:"7px 12px",cursor:"pointer",backgroundColor:"white"}}>✕ Fermer</button>
+      </div>
+      <div style={{maxWidth:"260mm",margin:"0 auto",padding:"20px 24px",fontFamily:"system-ui,sans-serif"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"18px",paddingBottom:"12px",borderBottom:"3px solid #dc2626"}}>
+          <div>
+            <div style={{fontSize:"11px",fontWeight:700,color:"#dc2626",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"6px"}}>▐ Vertical Montecharge — Planning prévisionnel</div>
+            <div style={{fontSize:"20px",fontWeight:700,color:"#1e293b",lineHeight:1.2,marginBottom:"6px"}}>{projet.nom}</div>
+            <div style={{display:"flex",gap:"18px",fontSize:"12px",color:"#6b7280",flexWrap:"wrap"}}>
+              <span><strong style={{color:"#374151"}}>Client :</strong> {projet.client}</span>
+              <span><strong style={{color:"#374151"}}>Réf. :</strong> {projet.id}</span>
+              <span><strong style={{color:"#dc2626"}}>Montant HT :</strong> <strong>{fmtMoney(projet.montant)}</strong></span>
+            </div>
+          </div>
+          <div style={{textAlign:"right",fontSize:"11px",color:"#9ca3af"}}>
+            <div style={{fontWeight:600,color:"#374151",marginBottom:"3px"}}>Document confidentiel</div>
+            <div>Édité le {today.toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
+          </div>
+        </div>
+        <div style={{marginBottom:"18px"}}>
+          <div style={{fontSize:"10px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",color:"#374151",marginBottom:"7px"}}>Planning par phases</div>
+          <div style={{border:"1px solid #e2e8f0",borderRadius:"6px",overflow:"hidden"}}>
+            <div style={{display:"flex"}}>
+              <div style={{width:"160px",flexShrink:0,borderRight:"1px solid #e2e8f0"}}>
+                <div style={{height:"22px",backgroundColor:"#f8fafc",borderBottom:"1px solid #e2e8f0"}}/>
+                <div style={{height:"18px",backgroundColor:"#f8fafc",borderBottom:"2px solid #cbd5e1"}}/>
+                {ALL_ETAPES.map(etape=>{const d=projet.dates[etape.key];return(
+                  <div key={etape.key} style={{height:"30px",display:"flex",alignItems:"center",padding:"0 10px",gap:"6px",borderBottom:"1px solid #f1f5f9"}}>
+                    <div style={{width:"9px",height:"9px",borderRadius:"2px",flexShrink:0,backgroundColor:etape.phase.color}}/>
+                    <span style={{fontSize:"10px",fontWeight:600,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{etape.phase.num}. {etape.phase.label}</span>
+                    {d?.done&&<span style={{fontSize:"9px",color:"#16a34a",marginLeft:"auto",flexShrink:0}}>✓</span>}
+                  </div>
+                );})}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{position:"relative",height:"22px",backgroundColor:"#f8fafc",borderBottom:"1px solid #e2e8f0"}}>
+                  {months.map((m,i)=><div key={i} style={{position:"absolute",left:`${m.leftPct}%`,width:`${m.widthPct}%`,top:0,bottom:0,display:"flex",alignItems:"center",paddingLeft:"5px",borderRight:"1px solid #cbd5e1",fontSize:"10px",fontWeight:700,color:"#374151",overflow:"hidden"}}>{m.label}</div>)}
+                </div>
+                <div style={{position:"relative",height:"18px",backgroundColor:"#f8fafc",borderBottom:"2px solid #cbd5e1"}}>
+                  {months.flatMap(m=>m.weeks).map((w,i)=><div key={i} style={{position:"absolute",left:`${w.leftPct}%`,top:0,bottom:0,fontSize:"8px",color:"#94a3b8",paddingLeft:"2px",borderLeft:"1px solid #e2e8f0",display:"flex",alignItems:"center"}}>S{w.num}</div>)}
+                </div>
+                {ALL_ETAPES.map(etape=>{const d=projet.dates[etape.key];const db=d?.debut?parseDate(d.debut):null;const fn=d?.fin?parseDate(d.fin):null;return(
+                  <div key={etape.key} style={{height:"30px",position:"relative",borderBottom:"1px solid #f1f5f9"}}>
+                    {months.map((m,i)=><div key={i} style={{position:"absolute",left:`${m.leftPct}%`,top:0,bottom:0,width:"1px",backgroundColor:"#f1f5f9"}}/>)}
+                    {db&&fn&&(()=>{const lp=getPct(db),rp=getPct(new Date(fn.getTime()+86400000));return <div style={{position:"absolute",left:`${lp}%`,width:`${Math.max(0.4,rp-lp)}%`,top:"7px",height:"16px",backgroundColor:etape.phase.color,opacity:d?.done?1:0.5,borderRadius:"3px",zIndex:1}}/>;})()}
+                  </div>
+                );})}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{marginBottom:"14px"}}>
+          <div style={{fontSize:"10px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",color:"#374151",marginBottom:"7px"}}>Détail des jalons</div>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:"11px"}}>
+            <thead><tr style={{backgroundColor:"#f8fafc"}}>
+              {["Étape","Date début","Date fin prévue","Sem. début","Sem. fin","Statut"].map((h,i)=><th key={i} style={{padding:"6px 10px",textAlign:"left",border:"1px solid #e2e8f0",fontWeight:700,color:"#374151"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>{ALL_ETAPES.map((etape,i)=>{
+              const d=projet.dates[etape.key];const hasDate=d?.debut||d?.fin;const db=d?.debut?parseDate(d.debut):null;const fn=d?.fin?parseDate(d.fin):null;
+              return <tr key={etape.key} style={{backgroundColor:i%2===0?"white":"#fafafa"}}>
+                <td style={{padding:"5px 10px",border:"1px solid #e2e8f0"}}><span style={{display:"inline-block",width:"8px",height:"8px",borderRadius:"2px",backgroundColor:etape.phase.color,marginRight:"6px",verticalAlign:"middle"}}/><strong>Étape {etape.phase.num}</strong> · {etape.label}</td>
+                <td style={{padding:"5px 10px",border:"1px solid #e2e8f0",color:hasDate?"#374151":"#9ca3af",fontStyle:hasDate?"normal":"italic"}}>{fmtD(d?.debut||"")}</td>
+                <td style={{padding:"5px 10px",border:"1px solid #e2e8f0",color:hasDate?"#374151":"#9ca3af",fontStyle:hasDate?"normal":"italic"}}>{fmtD(d?.fin||"")}</td>
+                <td style={{padding:"5px 10px",border:"1px solid #e2e8f0",textAlign:"center",fontWeight:600,color:"#6b7280"}}>{db?`S${isoWeek(db)}`:"—"}</td>
+                <td style={{padding:"5px 10px",border:"1px solid #e2e8f0",textAlign:"center",fontWeight:600,color:"#6b7280"}}>{fn?`S${isoWeek(fn)}`:"—"}</td>
+                <td style={{padding:"5px 10px",border:"1px solid #e2e8f0",textAlign:"center"}}>{d?.done?<span style={{color:"#16a34a",fontWeight:700}}>✓ Réalisé</span>:hasDate?<span style={{color:"#f97316",fontWeight:600}}>Planifié</span>:<span style={{color:"#9ca3af"}}>—</span>}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:"9px",color:"#94a3b8",paddingTop:"8px",borderTop:"1px solid #e2e8f0"}}>
+          <span>Vertical Montecharge — Document confidentiel réservé au destinataire</span>
+          <span>Généré le {today.toLocaleDateString("fr-FR")}</span>
+        </div>
+      </div>
+    </div>
+  </>);
+}
+
+const WW=50,RH=38;
+function buildWeeks(projets){let minD=null,maxD=null;projets.forEach(p=>ALL_ETAPES.forEach(e=>{const d=p.dates[e.key];if(!d)return;const db=parseDate(d.debut),fn=parseDate(d.fin);if(db&&(!minD||db<minD))minD=db;if(fn&&(!maxD||fn>maxD))maxD=fn;}));const n=new Date();const start=monday(new Date((minD||new Date(n.getFullYear(),n.getMonth()-1,1)).getTime()-7*86400000));const end=new Date((maxD||new Date(n.getFullYear(),n.getMonth()+5,1)).getTime()+21*86400000);const weeks=[];const cur=new Date(start);while(cur<=end){weeks.push(new Date(cur));cur.setDate(cur.getDate()+7);}return weeks;}
+function monthGroups(weeks){const g=[];weeks.forEach(w=>{const lb=w.toLocaleDateString("fr-FR",{month:"short",year:"2-digit"});const last=g[g.length-1];if(last&&last.label===lb)last.count++;else g.push({label:lb,yr:w.getFullYear(),mo:w.getMonth(),count:1});});return g;}
+function dateToX(weeks,d){for(let i=0;i<weeks.length;i++){const next=new Date(weeks[i]);next.setDate(next.getDate()+7);if(d>=weeks[i]&&d<next)return i*WW+((d.getDay()+6)%7)/7*WW;}return weeks.length>0&&d<weeks[0]?0:weeks.length*WW;}
+
+function GanttView({projets,onUpdate,onPdf}){
+  const [editId,setEditId]=useState(null);
+  const [selMonth,setSelMonth]=useState("all");
+  const today=new Date();today.setHours(0,0,0,0);
+  const weeks=buildWeeks(projets),mgrps=monthGroups(weeks),totalW=weeks.length*WW,LEFT=195;
+  const filteredProjets=selMonth==="all"?projets:(()=>{const[yr,mo]=selMonth.split("-").map(Number);return projets.filter(p=>activeInMonth(p,yr,mo-1));})();
+  const todayX=dateToX(weeks,today),editProjet=projets.find(p=>p.id===editId)||null;
+  return (<div>
+    <div style={{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"10px"}}>
+      <button onClick={()=>setSelMonth("all")} style={{fontSize:"11px",padding:"3px 10px",borderRadius:"20px",border:`1px solid ${selMonth==="all"?"#dc2626":"#d1d5db"}`,backgroundColor:selMonth==="all"?"#dc2626":"white",color:selMonth==="all"?"white":"#374151",cursor:"pointer",fontWeight:600}}>Tous les mois</button>
+      {mgrps.map(m=>{const key=`${m.yr}-${String(m.mo+1).padStart(2,"0")}`;const active=selMonth===key;return <button key={key} onClick={()=>setSelMonth(key)} style={{fontSize:"11px",padding:"3px 10px",borderRadius:"20px",border:`1px solid ${active?"#dc2626":"#d1d5db"}`,backgroundColor:active?"#dc2626":"white",color:active?"white":"#374151",cursor:"pointer",fontWeight:active?600:400}}>{m.label}</button>;})}
+    </div>
+    <div style={{display:"flex",gap:"10px",flexWrap:"wrap",marginBottom:"8px"}}>
+      {PHASES.map(p=><div key={p.id} style={{display:"flex",alignItems:"center",gap:"4px",fontSize:"10px",color:"#6b7280"}}><div style={{width:"10px",height:"10px",borderRadius:"2px",backgroundColor:p.color}}/>{p.num}. {p.label}</div>)}
+      <div style={{display:"flex",alignItems:"center",gap:"4px",fontSize:"10px",color:"#6b7280"}}><div style={{width:"2px",height:"10px",backgroundColor:"#ef4444"}}/> Aujourd'hui</div>
+    </div>
+    <div style={{display:"flex",border:"1px solid #e5e7eb",borderRadius:"8px 8px 0 0",overflow:"hidden"}}>
+      <div style={{width:`${LEFT}px`,flexShrink:0,borderRight:"1px solid #e5e7eb"}}>
+        <div style={{height:"28px",backgroundColor:"#f9fafb",borderBottom:"1px solid #e5e7eb"}}/>
+        <div style={{height:"24px",backgroundColor:"#f9fafb",borderBottom:"2px solid #cbd5e1"}}/>
+        {filteredProjets.map(p=>{const editing=editId===p.id;return(
+          <div key={p.id} style={{height:`${RH}px`,display:"flex",alignItems:"center",padding:"0 8px",gap:"5px",borderBottom:"1px solid #f3f4f6",backgroundColor:editing?"#fff5f5":"white",borderLeft:`3px solid ${editing?"#dc2626":"transparent"}`}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:"12px",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.nom}</div>
+              <div style={{fontSize:"10px",color:"#6b7280",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.client} · {fmtMoney(p.montant)}</div>
+            </div>
+            {isDelayed(p)&&<AlertTriangle style={{width:"11px",height:"11px",color:"#dc2626",flexShrink:0}}/>}
+            {getCurrentEtape(p)===null&&<CheckCircle2 style={{width:"11px",height:"11px",color:"#16a34a",flexShrink:0}}/>}
+            <button onClick={()=>onPdf(p)} title="Exporter PDF" style={{flexShrink:0,border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#9ca3af",fontSize:"11px",lineHeight:1}}>📄</button>
+            <button onClick={()=>setEditId(editing?null:p.id)} style={{flexShrink:0,border:"none",background:"none",cursor:"pointer",padding:"2px",color:editing?"#dc2626":"#9ca3af"}}>
+              {editing?<X style={{width:"13px",height:"13px"}}/>:<Edit2 style={{width:"13px",height:"13px"}}/>}
+            </button>
+          </div>
+        );})}
+      </div>
+      <div style={{flex:1,overflowX:"auto"}}>
+        <div style={{width:`${totalW}px`}}>
+          <div style={{display:"flex",height:"28px",backgroundColor:"#f9fafb",borderBottom:"1px solid #e5e7eb"}}>
+            {mgrps.map((m,i)=>{const key=`${m.yr}-${String(m.mo+1).padStart(2,"0")}`;const sel=selMonth===key;return <div key={i} style={{width:`${m.count*WW}px`,flexShrink:0,fontSize:"11px",fontWeight:700,display:"flex",alignItems:"center",paddingLeft:"8px",borderRight:"1px solid #d1d5db",backgroundColor:sel?"#fef2f2":"transparent",color:sel?"#dc2626":"#374151"}}>{m.label}</div>;})}
+          </div>
+          <div style={{display:"flex",height:"24px",backgroundColor:"#f9fafb",borderBottom:"2px solid #cbd5e1"}}>
+            {weeks.map((w,i)=>{const mkey=`${w.getFullYear()}-${String(w.getMonth()+1).padStart(2,"0")}`;const sel=selMonth===mkey;return <div key={i} style={{width:`${WW}px`,flexShrink:0,fontSize:"10px",display:"flex",alignItems:"center",justifyContent:"center",borderRight:"1px solid #e5e7eb",backgroundColor:sel?"#fef2f2":"transparent",color:sel?"#dc2626":"#6b7280",fontWeight:sel?700:400}}>S{isoWeek(w)}</div>;})}
+          </div>
+          {filteredProjets.map(p=>{const editing=editId===p.id;return(
+            <div key={p.id} style={{height:`${RH}px`,position:"relative",borderBottom:"1px solid #f3f4f6",backgroundColor:editing?"#fff8f8":"white"}}>
+              {weeks.map((_,i)=><div key={i} style={{position:"absolute",left:`${i*WW}px`,top:0,bottom:0,width:"1px",backgroundColor:i%4===0?"#e5e7eb":"#f9fafb"}}/>)}
+              {PHASES.map(phase=>phase.etapes.map(etape=>{const d=p.dates[etape.key];if(!d?.debut||!d?.fin)return null;const db=parseDate(d.debut),fn=parseDate(d.fin);if(!db||!fn)return null;const lx=dateToX(weeks,db),rx=dateToX(weeks,new Date(fn.getTime()+86400000)),w=Math.max(5,rx-lx);return <div key={etape.key} title={`${etape.label}\n${d.debut} → ${d.fin}${d.done?" ✓":""}`} style={{position:"absolute",left:`${lx}px`,width:`${w}px`,top:"9px",height:"20px",backgroundColor:phase.color,opacity:d.done?1:0.4,borderRadius:"3px",zIndex:1}}/>;}))  }
+              <div style={{position:"absolute",left:`${todayX}px`,top:0,bottom:0,width:"2px",backgroundColor:"#ef4444",zIndex:2}}/>
+            </div>
+          );})}
+        </div>
+      </div>
+    </div>
+    {editProjet&&<EditPanel projet={editProjet} onSave={p=>{onUpdate(p);setEditId(null);}} onCancel={()=>setEditId(null)} onDelete={id=>{onUpdate({...editProjet,id:"__DELETE__"+id});setEditId(null);}}/>}
+    <p style={{fontSize:"10px",color:"#9ca3af",marginTop:"6px",textAlign:"center"}}>Cliquez ✎ pour modifier · 📄 pour exporter · Barres opaques = terminé · Transparentes = à faire</p>
+  </div>);
+}
+
+function EtapesView({projets}){
+  const today=new Date();today.setHours(0,0,0,0);
+  return (<div style={{display:"grid",gap:"10px",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))"}}>
+    {PHASES.map(phase=>(
+      <div key={phase.id} style={{border:`1px solid ${phase.color}25`,borderRadius:"8px",overflow:"hidden"}}>
+        <div style={{backgroundColor:phase.color,padding:"8px 12px"}}><div style={{color:"white",fontSize:"12px",fontWeight:700}}>Étape {phase.num} · {phase.full}</div></div>
+        {phase.etapes.map(etape=>{
+          const inEtape=projets.filter(p=>getCurrentEtape(p)===etape.key);const ca=inEtape.reduce((s,p)=>s+p.montant,0);
+          return (<div key={etape.key} style={{borderBottom:`1px solid ${phase.color}15`,padding:"8px 12px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"5px"}}>
+              <span style={{fontSize:"11px",fontWeight:600,color:"#374151"}}>{etape.label}</span>
+              <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
+                <span style={{fontSize:"10px",fontWeight:700,color:"white",backgroundColor:inEtape.length>0?phase.color:"#9ca3af",padding:"1px 8px",borderRadius:"12px"}}>{inEtape.length} projet{inEtape.length!==1?"s":""}</span>
+                {inEtape.length>0&&<span style={{fontSize:"10px",color:"#6b7280",fontWeight:600}}>{fmtMoney(ca)}</span>}
+              </div>
+            </div>
+            {inEtape.length===0?<p style={{fontSize:"10px",color:"#9ca3af",fontStyle:"italic"}}>Aucun projet</p>:inEtape.map(p=>{const d=p.dates[etape.key];const fin=d?parseDate(d.fin):null;const late=fin&&fin<today;return(
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",backgroundColor:late?"#fef2f2":"#f9fafb",border:`1px solid ${late?"#fca5a5":"#e5e7eb"}`,borderRadius:"5px",padding:"4px 8px",marginBottom:"3px"}}>
+                <div><span style={{fontSize:"11px",fontWeight:600}}>{p.nom}</span><span style={{fontSize:"10px",color:"#6b7280",marginLeft:"6px"}}>{p.client}</span></div>
+                <div style={{display:"flex",gap:"8px",alignItems:"center",flexShrink:0}}>
+                  {d?.fin&&<span style={{fontSize:"10px",color:late?"#dc2626":"#6b7280",fontWeight:late?600:400}}>{late?"⚠ ":""}{new Date(d.fin+"T00:00:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short"})}</span>}
+                  <span style={{fontSize:"10px",fontWeight:600,color:"#374151"}}>{fmtMoney(p.montant)}</span>
+                </div>
+              </div>
+            );})}
+          </div>);
+        })}
+      </div>
+    ))}
+  </div>);
+}
+
+function VerticalDashboard(){
+  const [projets,setProjets]=useState(SAMPLE);
+  const [view,setView]=useState("gantt");
+  const [showAdd,setShowAdd]=useState(false);
+  const [pdfProjet,setPdfProjet]=useState(null);
+  const [newForm,setNewForm]=useState({id:"",nom:"",client:"",montant:""});
+  const fileRef=useRef(null);
+  const handleUpdate=updated=>{if(updated.id.startsWith("__DELETE__")){setProjets(prev=>prev.filter(p=>p.id!==updated.id.replace("__DELETE__","")));}else{setProjets(prev=>prev.map(p=>p.id===updated.id?updated:p));}};
+  const handleImport=useCallback(e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    Papa.parse(file,{header:true,skipEmptyLines:"greedy",complete:r=>{
+      const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+      const pick=(row,...c)=>{for(const x of c){const f=Object.keys(row).find(k=>norm(k)===norm(x));if(f&&row[f]?.toString().trim())return row[f].toString().trim();}return "";};
+      const imp=r.data.map(row=>{
+        const id=pick(row,"Lead Number","lead_number","Numéro","N° de vente","Référence","reference","id");
+        const nom=pick(row,"Opportunité","opportunite","Description","Désignation","Objet","nom","name")||id;
+        const client=pick(row,"Nom de la société","nom_de_la_societe","Client","Partenaire","Société","client");
+        const ville=pick(row,"Ville","ville","City");
+        const montant=parseFloat(pick(row,"Total HT","total_ht","Montant HT","Total","montant","amount","chiffre").replace(/[^\d.,]/g,"").replace(",","."))||0;
+        const dateMES=pick(row,"Date mise en service","date_mise_en_service","Date MES");
+        const dates={};
+        if(dateMES&&parseDate(dateMES))dates.mise_en_service={debut:dateMES,fin:dateMES,done:false};
+        return{id:id||`LD-${Date.now()}`,nom,client:ville?`${client} · ${ville}`:client,montant,dates};
+      }).filter(p=>p.nom||p.client);
+      const newCount=imp.length;
+      setProjets(prev=>{const ids=new Set(prev.map(p=>p.id));const added=imp.filter(p=>!ids.has(p.id));alert(`${added.length} projet(s) importé(s) sur ${newCount} ligne(s).`);return[...prev,...added];});
+    }});
+    e.target.value="";
+  },[]);
+  const handleExport=()=>{const rows=projets.map(p=>({reference:p.id,nom:p.nom,client:p.client,montant:p.montant,...Object.fromEntries(ALL_ETAPES.flatMap(e=>{const d=p.dates[e.key]||{debut:"",fin:"",done:false};return[[`${e.key}_debut`,d.debut],[`${e.key}_fin`,d.fin],[`${e.key}_done`,d.done?"oui":"non"]];}))  }));triggerUserFileDownload({content:Papa.unparse(rows),filename:"projets_vertical.csv"});};
+  const phaseStats=PHASES.map(phase=>{const pp=projets.filter(p=>{const c=getCurrentEtape(p);return c&&phase.etapes.some(e=>e.key===c);});return{...phase,count:pp.length,ca:pp.reduce((s,p)=>s+p.montant,0)};});
+  const totalCA=projets.reduce((s,p)=>s+p.montant,0);
+  return (
+    <main style={{minHeight:"100vh",backgroundColor:"#f8fafc",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{backgroundColor:"#dc2626",padding:"12px 20px"}}>
+        <div style={{fontSize:"16px",fontWeight:700,color:"white"}}>Vertical Montecharge — Suivi Projets</div>
+        <div style={{fontSize:"11px",color:"rgba(255,255,255,0.75)"}}>Planning des affaires · Monte-charges</div>
+      </div>
+      <div style={{maxWidth:"1200px",margin:"0 auto",padding:"16px"}}>
+        <div style={{display:"grid",gap:"8px",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",marginBottom:"14px"}}>
+          <div style={{border:"1px solid #e5e7eb",borderRadius:"8px",padding:"10px 12px",backgroundColor:"white"}}>
+            <div style={{fontSize:"10px",color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"3px"}}>Portefeuille</div>
+            <div style={{fontSize:"18px",fontWeight:700,color:"#dc2626"}}>{projets.length} projets</div>
+            <div style={{fontSize:"12px",color:"#374151",fontWeight:600}}>{fmtMoney(totalCA)}</div>
+          </div>
+          {phaseStats.map(s=>(
+            <div key={s.id} style={{border:`1px solid ${s.color}35`,borderRadius:"8px",padding:"10px 12px",backgroundColor:`${s.color}07`}}>
+              <div style={{fontSize:"10px",fontWeight:700,color:s.color,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:"3px"}}>{s.num}. {s.label}</div>
+              <div style={{fontSize:"18px",fontWeight:700,color:s.color}}>{s.count}</div>
+              <div style={{fontSize:"11px",color:"#374151"}}>{fmtMoney(s.ca)}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"12px"}}>
+          <div style={{display:"flex",border:"1px solid #e5e7eb",borderRadius:"7px",overflow:"hidden"}}>
+            {[{k:"gantt",l:"Planning Gantt"},{k:"etapes",l:"Par étape"}].map(v=><button key={v.k} onClick={()=>setView(v.k)} style={{padding:"6px 14px",fontSize:"12px",fontWeight:view===v.k?600:400,border:"none",cursor:"pointer",backgroundColor:view===v.k?"#dc2626":"transparent",color:view===v.k?"white":"#374151"}}>{v.l}</button>)}
+          </div>
+          <div style={{flex:1}}/>
+          <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={handleImport}/>
+          <Button onClick={()=>fileRef.current?.click()}><Upload style={{width:"13px",height:"13px",marginRight:"4px"}}/> Import Odoo</Button>
+          <Button onClick={handleExport}><Download style={{width:"13px",height:"13px",marginRight:"4px"}}/> Export CSV</Button>
+          <Button onClick={()=>setShowAdd(v=>!v)} style={{backgroundColor:"#dc2626",color:"white",border:"none"}}><Plus style={{width:"13px",height:"13px",marginRight:"4px"}}/> Nouveau</Button>
+        </div>
+        {showAdd&&(
+          <div style={{border:"1px solid #e5e7eb",borderRadius:"8px",padding:"12px 14px",backgroundColor:"white",marginBottom:"12px"}}>
+            <div style={{fontSize:"13px",fontWeight:600,marginBottom:"10px"}}>Nouveau projet</div>
+            <div style={{display:"grid",gap:"8px",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))"}}>
+              {[{k:"nom",l:"Nom *"},{k:"client",l:"Client"},{k:"id",l:"Référence"},{k:"montant",l:"Montant HT €",t:"number"}].map(f=>(
+                <div key={f.k}><div style={{fontSize:"11px",color:"#6b7280",marginBottom:"2px"}}>{f.l}</div>
+                <input type={f.t||"text"} value={newForm[f.k]} onChange={e=>setNewForm(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%",border:"1px solid #d1d5db",borderRadius:"5px",padding:"5px 8px",fontSize:"12px",boxSizing:"border-box"}}/></div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:"8px",justifyContent:"flex-end",marginTop:"10px"}}>
+              <Button onClick={()=>setShowAdd(false)}>Annuler</Button>
+              <Button onClick={()=>{if(!newForm.nom)return;setProjets(prev=>[...prev,{id:newForm.id||`VM-${new Date().getFullYear()}-${String(prev.length+1).padStart(3,"0")}`,nom:newForm.nom,client:newForm.client,montant:parseFloat(newForm.montant)||0,dates:{}}]);setNewForm({id:"",nom:"",client:"",montant:""});setShowAdd(false);}} style={{backgroundColor:"#dc2626",color:"white",border:"none"}}>Créer</Button>
+            </div>
+          </div>
+        )}
+        <div style={{border:"1px solid #e5e7eb",borderRadius:"8px",backgroundColor:"white",overflow:"visible"}}>
+          <div style={{padding:"12px 14px",borderBottom:"1px solid #f3f4f6"}}><span style={{fontSize:"13px",fontWeight:700}}>{view==="gantt"?"Planning Gantt — Vue par semaines":"Suivi par étape"}</span></div>
+          <div style={{padding:"14px 16px"}}>
+            {view==="gantt"&&<GanttView projets={projets} onUpdate={handleUpdate} onPdf={setPdfProjet}/>}
+            {view==="etapes"&&<EtapesView projets={projets}/>}
+          </div>
+        </div>
+      </div>
+      {pdfProjet&&<ProjectPDFView projet={pdfProjet} onClose={()=>setPdfProjet(null)}/>}
+    </main>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<VerticalDashboard/>);
+</script>
+</body>
+</html>
